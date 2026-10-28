@@ -11,6 +11,9 @@
 # VigIA (ticket 145): o VigIA usa só o Kong, o Auth, o PostgREST, o Storage (sem transformar imagem), o postgres-meta (o /pg do Kong,
 # por onde entram as migrações) e o Postgres. Studio, Realtime, imgproxy, Edge Functions, analytics, vector e Supavisor ficam com
 # réplicas zero, sem as dependências que apontavam para eles: liberam CPU e ~1,2 GB de memória. Para religar um, tire o `deploy`.
+# Missão TI (28/10/2026): a mesma pilha do VigIA, sem o postgres-meta — a rota /pg do Kong sai, e migrations, backup e tipos
+# chegam ao Postgres por túnel SSH, na 127.0.0.1:5433 da VPS. O Auth ganha o modelo da confirmação, o Turnstile, o tamanho da
+# senha e o teto de e-mails por hora, que na nuvem moravam no painel.
 name: supabase
 
 services:
@@ -184,6 +187,13 @@ services:
       GOTRUE_MAILER_TEMPLATES_RECOVERY: ${MAILER_TEMPLATES_RECOVERY:-}
       GOTRUE_MAILER_SUBJECTS_INVITE: ${MAILER_SUBJECTS_INVITE:-}
       GOTRUE_MAILER_SUBJECTS_RECOVERY: ${MAILER_SUBJECTS_RECOVERY:-}
+      GOTRUE_MAILER_TEMPLATES_CONFIRMATION: ${MAILER_TEMPLATES_CONFIRMATION:-}
+      GOTRUE_MAILER_SUBJECTS_CONFIRMATION: ${MAILER_SUBJECTS_CONFIRMATION:-}
+      GOTRUE_SECURITY_CAPTCHA_ENABLED: ${CAPTCHA_ENABLED:-false}
+      GOTRUE_SECURITY_CAPTCHA_PROVIDER: ${CAPTCHA_PROVIDER:-turnstile}
+      GOTRUE_SECURITY_CAPTCHA_SECRET: ${CAPTCHA_SECRET:-}
+      GOTRUE_PASSWORD_MIN_LENGTH: ${PASSWORD_MIN_LENGTH:-6}
+      GOTRUE_RATE_LIMIT_EMAIL_SENT: ${RATE_LIMIT_EMAIL_SENT:-30}
 
       GOTRUE_EXTERNAL_PHONE_ENABLED: ${ENABLE_PHONE_SIGNUP}
       GOTRUE_SMS_AUTOCONFIRM: ${ENABLE_PHONE_AUTOCONFIRM}
@@ -410,6 +420,8 @@ services:
   meta:
     image: supabase/postgres-meta:v0.96.3
     restart: unless-stopped
+    deploy:
+      replicas: 0
     depends_on:
       db:
         # Disable this if you are using an external Postgres database
@@ -497,6 +509,8 @@ services:
   db:
     image: supabase/postgres:17.6.1.084
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:5433:5432"
     volumes:
       - ./volumes/db/realtime.sql:/docker-entrypoint-initdb.d/migrations/99-realtime.sql:Z
       # Must be superuser to create event trigger
